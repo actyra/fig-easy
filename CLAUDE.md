@@ -122,8 +122,7 @@ The two gate commands, exactly as `ci` runs them, when you want one on its own:
 into `crates/engine/src/lib.rs` as `#[cfg(test)] mod al_drag_tests;`, so the module name is the
 filter:
 - `cargo test -p figcraft-engine --lib al_drag_tests` — one file's tests.
-- `cargo test -p figcraft-engine --lib al_drag_tests::wrap_drag_reorders_by_row_and_position
-  -- --exact` — one test.
+- `cargo test -p figcraft-engine --lib al_drag_tests::wrap_drag_reorders_by_row_and_position -- --exact` — one test.
 - `cargo nextest run -p figcraft-engine -E 'test(al_drag_tests)'` — the same under nextest.
 
 **The four apps** in `apps/*`:
