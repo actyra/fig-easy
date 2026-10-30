@@ -62,6 +62,7 @@ code.
 - No `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!` in shipped code
   (workspace clippy lints deny them; tests may use them). Return `Result`/`Option`; use `.get()` for
   data-derived indexes; slice strings only at char boundaries; check floats are finite; cap sizes.
+- New workspace crates must include `[lints] workspace = true` in `Cargo.toml` to inherit `[workspace.lints]`. Production crate roots must declare the required crate-level lint attributes before modules or other crate items; crate-level `//!` documentation may precede them.
 - `figcraft_engine::guard` turns a panicking command into `EngineError::Internal` and the document
   is rolled back; the desktop app also guards each UI frame and writes recovery copies. These are
   safety nets, not substitutes for `Result`.
@@ -71,23 +72,66 @@ code.
 
 ### Architecture
 - **Everything is a command.** User-visible behaviour = a command in `crates/engine/src/cmd/*`
-  (`spec!(id, label, params doc, undoable, run)`) + tests. The menus, shortcuts, Actions palette,
+  (`spec!(id, label, params doc, undoable, run)`) + tests. Each command module (most, not all, of
+  them under `cmd/`) exposes a `specs()`, and `cmd::registry()` collects them once into the table
+  that `Session::execute(id, params)` looks up and `cmd::all_commands()` returns — so a new command
+  is reachable only once its module's `specs()` is in that list. The menus, shortcuts, Actions palette,
   CLI, control channel and MCP server all dispatch the same command ids. Command ids follow the
   incumbent's menu catalog in `crates/engine/src/catalog.rs` (the parity metric: `cargo xtask parity`).
 - **Programmatic calls never open dialogs.** Commands only *request* UI (`Session::request_ui`); the
   control channel drops dialog requests.
 - **Layering** is enforced by `cargo xtask layers`: geom/color (L0) → doc (L1) → layout/text/pathops/plugin/collab
-  (L2) → render/format (L3) → svg/pdf (L4) → engine (L5) → ui-egui/mcp (L6) → apps. Nothing below
-  L6 depends on egui/eframe/rfd/winit. **The UI crate is swappable.**
+  (L2) → render/format (L3) → svg/pdf/vectordrawable (L4) → engine (L5) → ui-egui/mcp/collab-net (L6)
+  → apps (`xtask/src/layers.rs` holds the table). Nothing below
+  L6 depends on egui/eframe/rfd/winit, or on tokio/tungstenite/mio/socket2: networking lives in
+  `collab-net`. **The UI crate is swappable.**
 - **The UI is thin**: panels read engine state and act through `app.run(id, params)` /
   `app.set_props(ids, props)`. Colours come from `theme::Tokens`.
 - **Time goes through `chrono`** (workspace dependency). Never hand-roll UTC/calendar conversion (days-to-date algorithms, leap-year math); a crate owns only its output format string. The one exception is range extension: past the years chrono can represent, shift the date by whole 400-year Gregorian cycles (146,097 days, after which the calendar repeats), let chrono compute the month and day, and add the cycles back to the year (splitting seconds into hours, minutes and seconds is plain arithmetic).
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
 
 ### Quality gates (before every commit)
-`cargo xtask ci` (fmt, clippy -D warnings, tests, layers, assets, wasm). One task per commit with a
-milestone id in the message (`M2.1: auto layout wrap`). Commit after every landed arc of work; push
-to `main`.
+`cargo xtask ci` (fmt check, clippy -D warnings, tests and doctests, the i18n report, layers,
+assets, and the wasm check — which also builds the plugin workspace). One task per commit with a
+milestone id in the message (`M2.1: auto layout wrap`). Commit after every landed arc of work, then
+open a pull request: `main` takes merged PRs, not direct pushes.
+
+## Commands
+`cargo xtask` is an alias for `cargo run -q -p xtask --` (`.cargo/config.toml`); the doc comment at
+the top of `xtask/src/main.rs` describes every task.
+
+- `cargo xtask ci` — the full gate (above). Run it before every commit.
+- `cargo xtask test` — workspace unit and integration tests through `cargo nextest` when it is
+  installed (`cargo install cargo-nextest`), else `cargo test`; then the doctests, which nextest
+  does not run.
+- `cargo xtask wasm` — `cargo check --target wasm32-unknown-unknown` over collab, collab-net,
+  engine, ui-egui and figcraft-web, then `plugins`. Needs
+  `rustup target add wasm32-unknown-unknown`.
+- `cargo xtask plugins` — fmt, clippy, test and build `plugins/`, **a workspace of its own,
+  excluded from the root workspace**, so the root `cargo test`/`clippy` never sees it. Each example
+  lands in `<target>/plugins/dist/<example>/`, ready for
+  Plugins ▸ Development ▸ Import plugin from manifest…
+- Also `i18n-report`, `layers`, `assets`, `parity`, `icon`, `version [set X.Y.Z]`,
+  `bench [SIZES]`.
+
+The two gate commands, exactly as `ci` runs them, when you want one on its own:
+- `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets --keep-going -- -D warnings`
+
+**Running a single test.** The engine's behaviour tests are one `*_tests.rs` file per area, wired
+into `crates/engine/src/lib.rs` as `#[cfg(test)] mod al_drag_tests;`, so the module name is the
+filter:
+- `cargo test -p figcraft-engine --lib al_drag_tests` — one file's tests.
+- `cargo test -p figcraft-engine --lib al_drag_tests::wrap_drag_reorders_by_row_and_position -- --exact` — one test.
+- `cargo nextest run -p figcraft-engine -E 'test(al_drag_tests)'` — the same under nextest.
+
+**The four apps** in `apps/*`:
+- `cargo run -p figcraft` — the desktop app (see below for the control channel).
+- `cargo run -p figcraft-cli -- <info|export|run|commands|mcp>` — headless (`docs/cli.md`).
+- `cargo run -p figcraft-server -- --help` — the headless server that keeps a team's files and
+  serves their live sessions; it takes subcommands (`docs/server.md`).
+- `figcraft-web` is the WASM build: install [trunk](https://trunkrs.dev/), then `cargo xtask wasm`
+  to check it, or `trunk build --release` from `apps/figcraft-web` for the real bundle.
 
 ## Running and looking at the app
 - `cargo run -p figcraft -- --control <port> [file.figcraft|file.svg|image]`. Pick a free port
