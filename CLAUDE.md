@@ -93,8 +93,8 @@ code.
 ### Quality gates (before every commit)
 `cargo xtask ci` (fmt check, clippy -D warnings, tests and doctests, the i18n report, layers,
 assets, and the wasm check — which also builds the plugin workspace). One task per commit with a
-milestone id in the message (`M2.1: auto layout wrap`). Commit after every landed arc of work; push
-to `main`.
+milestone id in the message (`M2.1: auto layout wrap`). Commit after every landed arc of work, then
+open a pull request: `main` takes merged PRs, not direct pushes.
 
 ## Commands
 `cargo xtask` is an alias for `cargo run -q -p xtask --` (`.cargo/config.toml`); the doc comment at
