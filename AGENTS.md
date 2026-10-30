@@ -71,10 +71,10 @@ code.
 
 ### Architecture
 - **Everything is a command.** User-visible behaviour = a command in `crates/engine/src/cmd/*`
-  (`spec!(id, label, params doc, undoable, run)`) + tests. Each module exposes a `specs()` that
-  `cmd::registry()` collects once into the single dispatch table behind `Session::execute(id,
-  params)` and `cmd::all_commands()`, so a new command is only reachable once its module's
-  `specs()` is in that list. The menus, shortcuts, Actions palette,
+  (`spec!(id, label, params doc, undoable, run)`) + tests. Each command module (most, not all, of
+  them under `cmd/`) exposes a `specs()`, and `cmd::registry()` collects them once into the table
+  that `Session::execute(id, params)` looks up and `cmd::all_commands()` returns — so a new command
+  is reachable only once its module's `specs()` is in that list. The menus, shortcuts, Actions palette,
   CLI, control channel and MCP server all dispatch the same command ids. Command ids follow the
   incumbent's menu catalog in `crates/engine/src/catalog.rs` (the parity metric: `cargo xtask parity`).
 - **Programmatic calls never open dialogs.** Commands only *request* UI (`Session::request_ui`); the
@@ -82,7 +82,8 @@ code.
 - **Layering** is enforced by `cargo xtask layers`: geom/color (L0) → doc (L1) → layout/text/pathops/plugin/collab
   (L2) → render/format (L3) → svg/pdf/vectordrawable (L4) → engine (L5) → ui-egui/mcp/collab-net (L6)
   → apps (`xtask/src/layers.rs` holds the table). Nothing below
-  L6 depends on egui/eframe/rfd/winit. **The UI crate is swappable.**
+  L6 depends on egui/eframe/rfd/winit, or on tokio/tungstenite/mio/socket2: networking lives in
+  `collab-net`. **The UI crate is swappable.**
 - **The UI is thin**: panels read engine state and act through `app.run(id, params)` /
   `app.set_props(ids, props)`. Colours come from `theme::Tokens`.
 - **Time goes through `chrono`** (workspace dependency). Never hand-roll UTC/calendar conversion (days-to-date algorithms, leap-year math); a crate owns only its output format string. The one exception is range extension: past the years chrono can represent, shift the date by whole 400-year Gregorian cycles (146,097 days, after which the calendar repeats), let chrono compute the month and day, and add the cycles back to the year (splitting seconds into hours, minutes and seconds is plain arithmetic).
@@ -120,13 +121,15 @@ The two gate commands, exactly as `ci` runs them, when you want one on its own:
 into `crates/engine/src/lib.rs` as `#[cfg(test)] mod al_drag_tests;`, so the module name is the
 filter:
 - `cargo test -p figcraft-engine --lib al_drag_tests` — one file's tests.
-- `cargo test -p figcraft-engine --lib al_drag_tests::some_test -- --exact` — one test.
+- `cargo test -p figcraft-engine --lib al_drag_tests::wrap_drag_reorders_by_row_and_position
+  -- --exact` — one test.
 - `cargo nextest run -p figcraft-engine -E 'test(al_drag_tests)'` — the same under nextest.
 
 **The four apps** in `apps/*`:
 - `cargo run -p figcraft` — the desktop app (see below for the control channel).
 - `cargo run -p figcraft-cli -- <info|export|run|commands|mcp>` — headless (`docs/cli.md`).
-- `cargo run -p figcraft-server` — the live-collaboration server (`docs/server.md`).
+- `cargo run -p figcraft-server -- --help` — the headless server that keeps a team's files and
+  serves their live sessions; it takes subcommands (`docs/server.md`).
 - `figcraft-web` is the WASM build: install [trunk](https://trunkrs.dev/), then `cargo xtask wasm`
   to check it, or `trunk build --release` from `apps/figcraft-web` for the real bundle.
 
